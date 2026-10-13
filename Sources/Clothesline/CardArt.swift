@@ -1,13 +1,51 @@
 import AppKit
 import ClotheslineCore
 
-/// 拍立得、牛皮纸档案袋和彩色木夹的绘制。
+/// 拍立得（照片）、牛皮纸档案袋（文件夹）、透明按扣文件袋（单个文件）和彩色木夹的绘制。
 enum CardArt {
     struct Output {
         let image: CGImage
         let size: CGSize
         /// 夹子咬住绳子的点（单位坐标），卡片绕它旋转。
         let anchor: CGPoint
+        let bodyHeight: CGFloat
+    }
+
+    enum Style {
+        case polaroid(photo: CGSize)
+        case envelope
+        case pocket
+
+        init(_ item: ClotheslineItem, thumbnail: CGImage?, missing: Bool) {
+            if item.kind == .image {
+                let aspect = thumbnail.map { CGFloat($0.width) / CGFloat($0.height) } ?? 1
+                self = .polaroid(photo: Self.photoSize(aspect: aspect))
+            } else if FileBadge.isFolder(item.url) || (missing && item.url.pathExtension.isEmpty) {
+                self = .envelope // 文件夹丢了就判断不了，没扩展名的按文件夹算
+            } else {
+                self = .pocket
+            }
+        }
+
+        /// 照片按原图比例：面积大致固定，超出最大宽高就整体等比缩小，保证完整显示。
+        static func photoSize(aspect: CGFloat) -> CGSize {
+            let w = (Layout.photoArea * aspect).squareRoot(), h = (Layout.photoArea / aspect).squareRoot()
+            let fit = min(1, Layout.maxPhotoSize.width / w, Layout.maxPhotoSize.height / h)
+            return CGSize(width: w * fit, height: h * fit)
+        }
+
+        static func isTall(_ photo: CGSize) -> Bool { photo.height > Layout.tallPhotoRatio * photo.width }
+
+        var bodySize: CGSize {
+            switch self {
+            case .polaroid(let photo) where Self.isTall(photo):
+                return CGSize(width: photo.width + 34, height: photo.height + 16) // 右边白边加宽写日期
+            case .polaroid(let photo):
+                return CGSize(width: max(photo.width + 16, Layout.minPolaroidWidth), height: photo.height + 38)
+            case .envelope: return Layout.envelopeSize
+            case .pocket: return Layout.pocketSize
+            }
+        }
     }
 
     static let padding: CGFloat = 14
@@ -15,21 +53,26 @@ enum CardArt {
 
     static func render(_ item: ClotheslineItem, side: Side, thumbnail: CGImage?, missing: Bool,
                        scale: CGFloat) -> Output {
-        let bodySize = item.kind == .image ? Layout.polaroidSize : Layout.envelopeSize
+        let style = Style(item, thumbnail: thumbnail, missing: missing)
+        let bodySize = style.bodySize
         let size = CGSize(width: bodySize.width + 2 * padding, height: bodySize.height + 2 * padding + clipRoom)
         let body = CGRect(origin: CGPoint(x: padding, y: padding), size: bodySize)
         let clipX = side == .left ? body.maxX - 13 : body.minX + 13
 
         let image = draw(size: size, scale: scale) { ctx in
-            if item.kind == .image {
-                drawPolaroid(item, in: body, side: side, thumbnail: thumbnail, missing: missing, ctx: ctx)
-            } else {
+            switch style {
+            case .polaroid(let photo):
+                drawPolaroid(item, in: body, photo: photo, side: side, thumbnail: thumbnail, missing: missing, ctx: ctx)
+            case .envelope:
                 drawEnvelope(item, in: body, missing: missing, ctx: ctx)
+            case .pocket:
+                drawPocket(item, in: body, thumbnail: thumbnail, missing: missing, ctx: ctx)
             }
             drawClip(at: CGPoint(x: clipX, y: body.maxY), color: clipColors[Int((item.seed >> 8) % 6)], ctx: ctx)
         }
         return Output(image: image, size: size,
-                      anchor: CGPoint(x: clipX / size.width, y: (body.maxY + 8) / size.height))
+                      anchor: CGPoint(x: clipX / size.width, y: (body.maxY + 8) / size.height),
+                      bodyHeight: bodySize.height)
     }
 
     // MARK: - 拍立得
@@ -37,23 +80,24 @@ enum CardArt {
     private static let paper = NSColor(srgbRed: 0.97, green: 0.95, blue: 0.91, alpha: 1)
     private static let ink = NSColor(srgbRed: 0.22, green: 0.24, blue: 0.34, alpha: 0.9)
 
-    private static func drawPolaroid(_ item: ClotheslineItem, in b: CGRect, side: Side, thumbnail: CGImage?,
-                                     missing: Bool, ctx: CGContext) {
+    private static func drawPolaroid(_ item: ClotheslineItem, in b: CGRect, photo photoSize: CGSize, side: Side,
+                                     thumbnail: CGImage?, missing: Bool, ctx: CGContext) {
         dropShadow(for: b, ctx: ctx)
         ctx.setFillColor(paper.cgColor)
         ctx.fill(b)
         grain(b, ctx: ctx)
         curledCorners(b, ctx: ctx)
 
-        let photoSide = b.width - 16
-        let photo = CGRect(x: b.minX + 8, y: b.maxY - 8 - photoSide, width: photoSide, height: photoSide)
+        let tall = Style.isTall(photoSize)
+        let photo = tall
+            ? CGRect(origin: CGPoint(x: b.minX + 8, y: b.minY + 8), size: photoSize)
+            : CGRect(x: b.midX - photoSize.width / 2, y: b.maxY - 8 - photoSize.height,
+                     width: photoSize.width, height: photoSize.height)
         ctx.saveGState()
         ctx.clip(to: photo)
         if let thumbnail, !missing {
-            let s = max(photo.width / CGFloat(thumbnail.width), photo.height / CGFloat(thumbnail.height))
-            let w = CGFloat(thumbnail.width) * s, h = CGFloat(thumbnail.height) * s
             ctx.interpolationQuality = .high
-            ctx.draw(thumbnail, in: CGRect(x: photo.midX - w / 2, y: photo.midY - h / 2, width: w, height: h))
+            ctx.draw(thumbnail, in: photo) // 相框和原图同比例，整张图完整显示
         } else {
             ctx.setFillColor(NSColor(white: missing ? 0.7 : 0.82, alpha: 1).cgColor)
             ctx.fill(photo)
@@ -71,10 +115,20 @@ enum CardArt {
         ctx.stroke(photo.insetBy(dx: -2, dy: -2))
         ctx.restoreGState()
 
-        // 白边外侧手写日期
+        // 手写日期：长图竖着写在右边（从下往上），其余写在底边靠外侧
         let text = missing ? "已丢失" : dateFormatter.string(from: takenDate(item))
-        handwrite(text, in: CGRect(x: b.minX + 9, y: b.minY + 5, width: b.width - 18, height: 18),
-                  size: 12, color: missing ? .systemRed : ink, alignment: side == .left ? .left : .right)
+        let color = missing ? NSColor.systemRed : ink
+        if tall {
+            ctx.saveGState()
+            ctx.translateBy(x: b.maxX - 6, y: photo.minY)
+            ctx.rotate(by: .pi / 2)
+            handwrite(text, in: CGRect(x: 0, y: 0, width: photo.height, height: 18), size: 12, color: color,
+                      alignment: .left)
+            ctx.restoreGState()
+        } else {
+            handwrite(text, in: CGRect(x: b.minX + 9, y: b.minY + 5, width: b.width - 18, height: 18),
+                      size: 12, color: color, alignment: side == .left ? .left : .right)
+        }
     }
 
     private static let dateFormatter: DateFormatter = {
@@ -204,6 +258,124 @@ enum CardArt {
         inner.lineWidth = 0.7
         inner.stroke()
         (text as NSString).draw(at: CGPoint(x: -textSize.width / 2, y: -textSize.height / 2), withAttributes: attrs)
+        ctx.restoreGState()
+    }
+
+    // MARK: - 透明按扣文件袋
+
+    private static func drawPocket(_ item: ClotheslineItem, in b: CGRect, thumbnail: CGImage?, missing: Bool,
+                                   ctx: CGContext) {
+        let badge = FileBadge.badge(for: item.url)
+        let color = missing ? NSColor.gray : tint(badge.tint)
+        let pocket = CGPath(roundedRect: b, cornerWidth: 4, cornerHeight: 4, transform: nil)
+        let flap = CGRect(x: b.minX, y: b.maxY - 22, width: b.width, height: 22)
+        let sheet = CGRect(x: b.minX + 7, y: b.minY + 22, width: b.width - 14, height: b.height - 34)
+
+        // 塑料袋本身：很淡，影子也淡
+        ctx.saveGState()
+        ctx.setShadow(offset: CGSize(width: 0, height: -2), blur: 4, color: CGColor(gray: 0, alpha: 0.6))
+        ctx.addPath(pocket)
+        ctx.setFillColor(NSColor.white.withAlphaComponent(0.3).cgColor)
+        ctx.fillPath()
+        ctx.restoreGState()
+
+        // 袋里的那页纸：文件第一页的缩略图，靠上对齐
+        ctx.saveGState()
+        ctx.setShadow(offset: CGSize(width: 0, height: -0.5), blur: 1.5, color: CGColor(gray: 0, alpha: 0.3))
+        ctx.setFillColor(NSColor(white: missing ? 0.82 : 1, alpha: 1).cgColor)
+        ctx.fill(sheet)
+        ctx.restoreGState()
+        ctx.saveGState()
+        ctx.clip(to: sheet)
+        if let thumbnail, !missing {
+            let s = max(sheet.width / CGFloat(thumbnail.width), sheet.height / CGFloat(thumbnail.height))
+            let w = CGFloat(thumbnail.width) * s, h = CGFloat(thumbnail.height) * s
+            ctx.interpolationQuality = .high
+            ctx.draw(thumbnail, in: CGRect(x: sheet.midX - w / 2, y: sheet.maxY - h, width: w, height: h))
+        } else {
+            // 没有内容可看（压缩包等）：画几行浅灰"字"
+            ctx.setFillColor(CGColor(gray: 0.6, alpha: 0.35))
+            var rng = SeededRandom(state: item.seed)
+            for y in stride(from: sheet.maxY - 18, to: sheet.minY + 6, by: -7) {
+                ctx.fill(CGRect(x: sheet.minX + 6, y: y, width: .random(in: 0.4...0.85, using: &rng) * (sheet.width - 12), height: 2.5))
+            }
+        }
+        ctx.restoreGState()
+
+        // 磨砂塑料 + 两道斜向反光
+        ctx.saveGState()
+        ctx.addPath(pocket)
+        ctx.clip()
+        ctx.setFillColor(color.withAlphaComponent(0.07).cgColor)
+        ctx.fill(b)
+        ctx.setFillColor(NSColor.white.withAlphaComponent(0.12).cgColor)
+        ctx.fill(b)
+        let shine = CGGradient(colorsSpace: nil, colors: [
+            CGColor(gray: 1, alpha: 0), CGColor(gray: 1, alpha: 0.4), CGColor(gray: 1, alpha: 0),
+            CGColor(gray: 1, alpha: 0), CGColor(gray: 1, alpha: 0.25), CGColor(gray: 1, alpha: 0),
+        ] as CFArray, locations: [0.22, 0.3, 0.38, 0.5, 0.54, 0.58])!
+        ctx.drawLinearGradient(shine, start: CGPoint(x: b.minX, y: b.maxY), end: CGPoint(x: b.maxX, y: b.minY), options: [])
+
+        // 翻盖：比袋身更不透明一点，下沿压一道影子
+        ctx.setShadow(offset: CGSize(width: 0, height: -1), blur: 2, color: CGColor(gray: 0, alpha: 0.25))
+        ctx.setFillColor(NSColor.white.withAlphaComponent(0.45).blended(withFraction: 0.12, of: color)!.cgColor)
+        ctx.fill(flap)
+        ctx.restoreGState()
+        ctx.setStrokeColor(color.withAlphaComponent(0.45).cgColor)
+        ctx.setLineWidth(0.8)
+        ctx.strokeLineSegments(between: [CGPoint(x: b.minX, y: flap.minY), CGPoint(x: b.maxX, y: flap.minY)])
+
+        // 袋边按类型颜色微微着色，内侧一道热压封边
+        ctx.addPath(pocket)
+        ctx.setStrokeColor(color.withAlphaComponent(0.6).cgColor)
+        ctx.setLineWidth(1.2)
+        ctx.strokePath()
+        ctx.addPath(CGPath(roundedRect: b.insetBy(dx: 2.5, dy: 2.5), cornerWidth: 2.5, cornerHeight: 2.5, transform: nil))
+        ctx.setStrokeColor(color.withAlphaComponent(0.25).cgColor)
+        ctx.setLineWidth(0.6)
+        ctx.strokePath()
+
+        // 按扣
+        let snap = CGRect(x: b.midX - 5.5, y: flap.midY - 6.5, width: 11, height: 11)
+        ctx.saveGState()
+        ctx.setShadow(offset: CGSize(width: 0, height: -1), blur: 1.5, color: CGColor(gray: 0, alpha: 0.35))
+        ctx.setFillColor(color.cgColor)
+        ctx.fillEllipse(in: snap)
+        ctx.restoreGState()
+        let gloss = CGGradient(colorsSpace: nil, colors: [CGColor(gray: 1, alpha: 0.7), CGColor(gray: 1, alpha: 0)] as CFArray,
+                               locations: [0, 1])!
+        ctx.drawRadialGradient(gloss, startCenter: CGPoint(x: snap.midX - 1.5, y: snap.midY + 1.5), startRadius: 0,
+                               endCenter: CGPoint(x: snap.midX - 1.5, y: snap.midY + 1.5), endRadius: 4, options: [])
+        ctx.setStrokeColor(color.blended(withFraction: 0.35, of: .black)!.cgColor)
+        ctx.setLineWidth(0.7)
+        ctx.strokeEllipse(in: snap.insetBy(dx: 2.5, dy: 2.5))
+
+        // 类型小标签 / 丢失印章
+        if missing {
+            stamp("已丢失", color: .systemRed, center: CGPoint(x: sheet.midX, y: sheet.midY), angle: 0.2, ctx: ctx)
+        } else {
+            label(badge.text, color: color, at: CGPoint(x: sheet.minX - 2, y: sheet.minY + 4), ctx: ctx)
+        }
+
+        handwrite(item.url.lastPathComponent, in: CGRect(x: b.minX + 6, y: b.minY + 4, width: b.width - 12, height: 16),
+                  size: 10.5, color: NSColor(white: 0.2, alpha: 0.9), alignment: .center)
+    }
+
+    /// 贴在袋子上的彩色小标签，略歪。
+    private static func label(_ text: String, color: NSColor, at origin: CGPoint, ctx: CGContext) {
+        let font = NSFont(name: "AmericanTypewriter-Bold", size: 9) ?? .boldSystemFont(ofSize: 9)
+        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.white]
+        let size = (text as NSString).size(withAttributes: attrs)
+        let tag = CGRect(x: 0, y: 0, width: size.width + 10, height: size.height + 3)
+        ctx.saveGState()
+        ctx.translateBy(x: origin.x, y: origin.y)
+        ctx.rotate(by: -0.07)
+        ctx.setShadow(offset: CGSize(width: 0, height: -0.5), blur: 1, color: CGColor(gray: 0, alpha: 0.3))
+        ctx.addPath(CGPath(roundedRect: tag, cornerWidth: 2, cornerHeight: 2, transform: nil))
+        ctx.setFillColor(color.withAlphaComponent(0.92).cgColor)
+        ctx.fillPath()
+        ctx.setShadow(offset: .zero, blur: 0, color: nil)
+        (text as NSString).draw(at: CGPoint(x: 5, y: 1.5), withAttributes: attrs)
         ctx.restoreGState()
     }
 

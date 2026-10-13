@@ -26,6 +26,8 @@ final class CardLayer: CALayer {
     var swing = Spring(value: 0, stiffness: 90, damping: 3.2, epsilon: 0.002)
     var flight: Flight?
     var rendered: RenderState?
+    /// 卡片本身（不含夹子和阴影留白）的高度，决定下一张离它多远。
+    var bodyHeight: CGFloat = 0
 
     init(item: ClotheslineItem) {
         self.item = item
@@ -57,6 +59,7 @@ final class CardLayer: CALayer {
         contentsScale = scale
         bounds = CGRect(origin: .zero, size: art.size)
         anchorPoint = art.anchor
+        bodyHeight = art.bodyHeight
     }
 }
 

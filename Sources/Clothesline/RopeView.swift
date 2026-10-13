@@ -13,6 +13,8 @@ final class RopeView: NSView {
     private var length = Spring(value: Layout.stubLength, stiffness: 170, damping: 17)
     private var sway = Spring(value: 0, stiffness: 55, damping: 2.8)
     private var timer: Timer?
+    /// 最下面那张卡片的夹子位置（距顶端）。
+    private var lastClip = Layout.firstClip
 
     // 交互状态（RopeView+Interaction）
     var pressed: CardLayer?
@@ -42,12 +44,11 @@ final class RopeView: NSView {
 
     /// 展开时绳子的长度：够挂下所有卡片，但不超出屏幕。
     private var fullLength: CGFloat {
-        let needed = Layout.firstClip + CGFloat(max(store.items.count - 1, 0)) * Layout.clipSpacing + Layout.ropeTail
-        return max(Layout.minRopeLength, min(needed, bounds.height - Layout.bottomRoom))
+        max(Layout.minRopeLength, min(lastClip + Layout.ropeTail, bounds.height - Layout.bottomRoom))
     }
 
     var maxScroll: CGFloat {
-        max(0, Layout.firstClip + CGFloat(max(store.items.count - 1, 0)) * Layout.clipSpacing + Layout.ropeTail - fullLength)
+        max(0, lastClip + Layout.ropeTail - fullLength)
     }
 
     /// 收起时露出的那一小截，鼠标停在这里会让绳子掉下来。
@@ -77,7 +78,8 @@ final class RopeView: NSView {
 
     // MARK: - 数据
 
-    /// 和 store 对齐：增删卡片、分左右、重画状态变了的卡片（丢失、缩略图更新）。
+    /// 和 store 对齐：增删卡片、分左右、重画状态变了的卡片（丢失、缩略图更新），
+    /// 再按每张卡片的高度从上往下排夹子的位置。
     func reload() {
         let items = store.items
         let ids = Set(items.map(\.id))
@@ -85,13 +87,15 @@ final class RopeView: NSView {
             card.removeFromSuperlayer()
             cards[id] = nil
         }
+        var clip = Layout.firstClip
         for (index, item) in items.enumerated() {
-            let target = Layout.firstClip + CGFloat(index) * Layout.clipSpacing
-            let card = cards[item.id] ?? makeCard(item, at: target - scroll)
+            let card = cards[item.id] ?? makeCard(item, at: clip - scroll)
             // 从最旧的数起左右交错，新挂上的不会让旧的换边
             card.side = (items.count - 1 - index) % 2 == 0 ? .left : .right
-            card.targetDistance = target
+            card.targetDistance = clip
             render(card)
+            lastClip = clip
+            clip += Layout.clipGap(below: card.bodyHeight)
         }
         scroll = min(scroll, maxScroll)
         startTicking()
@@ -109,10 +113,9 @@ final class RopeView: NSView {
         let item = card.item
         let missing = item.isMissing
         var thumbnail: CGImage?
-        if item.kind == .image, !missing {
-            thumbnail = thumbnails.thumbnail(for: item.url) { [weak self, weak card] in
-                if let self, let card { self.render(card) }
-            }
+        if !missing, !FileBadge.isFolder(item.url) {
+            // 缩略图好了以后卡片大小可能变（照片按原比例），所以整体重排
+            thumbnail = thumbnails.thumbnail(for: item.url) { [weak self] in self?.reload() }
         }
         let state = CardLayer.RenderState(side: card.side, missing: missing, thumbnail: thumbnail)
         guard state != card.rendered else { return }
@@ -156,7 +159,7 @@ final class RopeView: NSView {
 
     /// 「预览」保存标注后 Images 目录变了：重画缩略图有变化的照片。
     func refreshThumbnails() {
-        cards.values.filter { $0.item.kind == .image }.forEach(render)
+        reload()
     }
 
     // MARK: - 逐帧
@@ -216,7 +219,7 @@ final class RopeView: NSView {
         }
 
         // 绳子经过的地方才挂得住；刚露出来就"啪"地夹上晃一下
-        let visible = card.distance <= g.length && card.distance > -Layout.polaroidSize.height
+        let visible = card.distance <= g.length && card.distance > -Layout.maxPhotoSize.height
         if visible && card.isHidden { clipOn(card) }
         card.isHidden = !visible
         guard visible else {

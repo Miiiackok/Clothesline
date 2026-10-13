@@ -1,7 +1,9 @@
 import AppKit
+import ClotheslineCore
 import ImageIO
+import QuickLookThumbnailing
 
-/// 照片缩略图缓存：文件改过（「预览」标注保存后）会重新生成。
+/// 缩略图缓存（照片，以及透明文件袋里看到的文件第一页）。文件改过（比如「预览」标注保存后）会重新生成。
 final class Thumbnails {
     private var cache: [String: (modified: Date?, image: CGImage)] = [:]
     private var inFlight: Set<String> = []
@@ -25,7 +27,7 @@ final class Thumbnails {
         return cache[url.path]?.image
     }
 
-    /// 同步生成（截图飞入前要立刻有图）。
+    /// 同步生成照片缩略图（截图飞入前要立刻有图）。
     func load(_ url: URL) {
         if let image = Self.make(url) { cache[url.path] = (Self.modificationDate(url), image) }
     }
@@ -35,12 +37,31 @@ final class Thumbnails {
     }
 
     private static func make(_ url: URL) -> CGImage? {
+        ItemKind.classify(url) == .image ? imageThumbnail(url) : fileThumbnail(url)
+    }
+
+    private static func imageThumbnail(_ url: URL) -> CGImage? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: 360,
+            kCGImageSourceThumbnailMaxPixelSize: 600, // 长截图最长 220pt，2x 屏要 440px
         ]
         return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+    }
+
+    /// 文档内容缩略图（PDF/Word 第一页、表格……）；没有内容可看的（压缩包等）返回 nil。
+    /// 只在后台队列调用，所以可以同步等待。
+    private static func fileThumbnail(_ url: URL) -> CGImage? {
+        let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: 160, height: 200),
+                                                   scale: 2, representationTypes: .thumbnail)
+        var image: CGImage?
+        let done = DispatchSemaphore(value: 0)
+        QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { representation, _ in
+            image = representation?.cgImage
+            done.signal()
+        }
+        _ = done.wait(timeout: .now() + 5)
+        return image
     }
 }

@@ -25,10 +25,13 @@ public struct FileBadge: Equatable {
         if let tint = groups.first(where: { $0.1.contains(ext) })?.0 {
             return FileBadge(text: aliases[ext] ?? ext.uppercased(), tint: tint)
         }
-        let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
-        if values?.isDirectory == true, values?.isPackage != true {
-            return FileBadge(text: "文件夹", tint: .teal)
-        }
+        if isFolder(url) { return FileBadge(text: "文件夹", tint: .teal) }
         return FileBadge(text: ext.isEmpty ? "FILE" : String(ext.uppercased().prefix(5)), tint: .darkBrown)
+    }
+
+    /// 真正的文件夹；.app、.pages 这类包算单个文件。
+    public static func isFolder(_ url: URL) -> Bool {
+        let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
+        return values?.isDirectory == true && values?.isPackage != true
     }
 }

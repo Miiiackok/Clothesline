@@ -11,11 +11,20 @@ enum Layout {
     /// 绳子最长时，下面留给最后一张卡片的空间。
     static let bottomRoom: CGFloat = 170
     static let firstClip: CGFloat = 54
-    static let clipSpacing: CGFloat = 112
     static let ropeTail: CGFloat = 70
 
-    static let polaroidSize = CGSize(width: 116, height: 138)
-    static let envelopeSize = CGSize(width: 112, height: 140)
+    /// 一张卡片的夹子到下一张夹子的距离：卡片越长，下一张离得越远。
+    static func clipGap(below bodyHeight: CGFloat) -> CGFloat { bodyHeight / 2 + 43 }
+
+    /// 拍立得里的照片按原图比例完整显示：面积大致固定，最宽 120（右侧不出屏）、最长 220（约 1/4 屏高）。
+    static let photoArea: CGFloat = 100 * 100
+    static let maxPhotoSize = CGSize(width: 120, height: 220)
+    static let minPolaroidWidth: CGFloat = 84
+    /// 长度超过宽度这么多倍的照片，日期改写在加宽的右边白边上。
+    static let tallPhotoRatio: CGFloat = 2.1
+
+    static let envelopeSize = CGSize(width: 112, height: 140) // 文件夹：牛皮纸档案袋
+    static let pocketSize = CGSize(width: 96, height: 120)    // 单个文件：透明按扣文件袋
 
     /// 主显示器（带菜单栏的那块）右侧，菜单栏正下方。
     static func panelFrame(on screen: NSScreen) -> NSRect {

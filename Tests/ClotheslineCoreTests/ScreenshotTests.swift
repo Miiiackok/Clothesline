@@ -88,4 +88,11 @@ final class FileBadgeTests: TempDirTestCase {
         XCTAssertEqual(badge("a.sketchbook"), FileBadge(text: "SKETC", tint: .darkBrown))
         XCTAssertEqual(badge("Makefile"), FileBadge(text: "FILE", tint: .darkBrown))
     }
+
+    func testIsFolder() throws {
+        XCTAssertTrue(FileBadge.isFolder(try makeDir("Stuff")))
+        XCTAssertFalse(FileBadge.isFolder(try makeDir("Demo.app")))
+        XCTAssertFalse(FileBadge.isFolder(try makeFile("a.pdf")))
+        XCTAssertFalse(FileBadge.isFolder(tmp.appendingPathComponent("gone")))
+    }
 }
