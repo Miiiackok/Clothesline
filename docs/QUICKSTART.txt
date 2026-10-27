@@ -1,0 +1,48 @@
+Clothesline 0.1.0 · 桌面晾衣绳
+https://github.com/MiWang0608/Clothesline
+
+中文
+----
+要求：macOS 13+；arm64 版适合 Apple Silicon（M 系列），x86_64 版适合 Intel。
+不需要安装 Xcode 或 Swift 开发环境。
+
+1. 解压下载包。
+2. 打开终端，输入 cd 和一个空格，把解压后的文件夹拖入终端，再按回车。
+3. 输入 ./Clothesline 并回车。保持终端窗口开启。
+4. 如果系统询问是否允许访问桌面，允许后才能自动收纳截图。
+5. 把鼠标移到屏幕右上角的小绳结，展开绳子；也可以把文件拖到那里。
+6. 退出：菜单栏回形针 → 退出 Clothesline，或在终端按 Ctrl-C。
+
+这是未经过 Apple Developer ID 签名和公证的早期个人项目。
+如果 macOS 阻止首次运行，请只在确认来源后使用系统设置 → 隐私与安全性中的“仍要打开”。
+官方说明：https://support.apple.com/102445
+无需全局关闭系统安全功能；如果出现恶意软件警告，不要绕过。
+
+文件行为
+- 自动收纳的截图、手动拖入的照片会被移入应用自己的 Images 文件夹。
+- 其他文件和文件夹只记录位置，不会移动。
+- 从绳子拖出的照片保留至少 24 小时，并在之后启动应用时清理。
+- 右键“从绳子上摘掉”会把照片放入废纸篓；普通文件只移除引用。
+- 数据保存在 ~/Library/Application Support/Clothesline/。
+- 开机自动启动需要 .app；此终端版本不提供该能力。
+
+English
+-------
+Requires macOS 13+. Choose arm64 for Apple Silicon or x86_64 for Intel.
+No Xcode or Swift development tools are required to run the downloaded executable.
+
+Unzip, open Terminal in the extracted folder, then run:
+    ./Clothesline
+Keep Terminal open. Quit using the menu-bar paperclip or Ctrl-C.
+Allow Desktop access if prompted. Hover over the rope at the top-right to reveal it.
+
+This early release is ad-hoc signed, not Developer ID signed or notarized.
+If macOS blocks it, follow Apple's instructions only after verifying the source:
+https://support.apple.com/102445
+Do not globally disable Gatekeeper or override a malware warning.
+
+Screenshots and dropped photos are moved into the app's storage. Other files stay
+in their original locations. Dragged-out photos are retained for at least 24 hours
+and cleaned up on a later launch. Removing a photo from the context menu moves it
+to Trash. Data: ~/Library/Application Support/Clothesline/
+Launch at login requires an app bundle and is unavailable in this terminal release.

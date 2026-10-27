@@ -1,0 +1,23 @@
+name: 问题反馈 / Bug report
+description: 告诉我们在哪里遇到了问题 / Tell us what went wrong
+title: "[Bug] "
+body:
+  - type: input
+    id: environment
+    attributes:
+      label: 系统与芯片 / macOS and chip
+      placeholder: macOS 15, Apple M2; Clothesline 0.1.0
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤 / Steps to reproduce
+      description: 你做了什么，期望什么，实际发生了什么？ / What did you do, expect, and observe?
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: 截图或终端输出 / Screenshots or terminal output
+      description: 提交前请移除私人文件内容和路径。 / Remove private content and paths before submitting.

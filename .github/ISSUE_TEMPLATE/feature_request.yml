@@ -1,0 +1,11 @@
+name: 想法与建议 / Feature request
+description: 分享一个让晾衣绳更好用的想法 / Share an idea for Clothesline
+title: "[Idea] "
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: 你希望改善什么？ / What would you like to improve?
+      description: 描述使用场景，以及你希望它怎样工作。 / Describe your use case and the desired behavior.
+    validations:
+      required: true
